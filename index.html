@@ -292,7 +292,7 @@ const arr=c=>Object.entries(L.data[c]).map(([id,v])=>Object.assign({id},v));
 const strip=o=>{const c=JSON.parse(JSON.stringify(o));delete c.id;return c};
 /* Rellena estos dos valores con los de tu proyecto de Supabase (Project Settings > API).
    Si los dejas vacíos, la página funciona en modo de prueba, guardando solo en este navegador. */
-const CONFIG={SUPABASE_URL:'https://mlkxursxnxxzkthbeoot.supabase.co/rest/v1/',SUPABASE_ANON_KEY:''};
+const CONFIG={SUPABASE_URL:'https://mlkxursxnxxzkthbeoot.supabase.co',SUPABASE_ANON_KEY:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sa3h1cnN4bnh4emt0aGJlb290Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ1MTgxNzcsImV4cCI6MjExMDA5NDE3N30.hlRs--WHQReO3JsfURA9ZQKeMpJJiMhElkYzge6V5jE'};
 let SB=null;
 const SBC={cache:{},fns:{}};
 async function loadCol(col){
