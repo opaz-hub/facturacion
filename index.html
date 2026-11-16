@@ -993,6 +993,7 @@ function viewDoc(id,keep){
    <div class="totals"><span>Subtotal</span><span>${fmtN(d.subtotal)}</span>${(d.descuento>0||d.descLineas>0)?`<span>Descuentos y rebajas</span><span>-${fmtN(r2((d.descuento||0)+(d.descLineas||0)))}</span>`:''}<span>Gravado</span><span>${fmtN(d.gravado)}</span><span>Exento</span><span>${fmtN(d.exento)}</span><span>ISV ${+d.impuestoPct}%</span><span>${fmtN(d.impuesto)}</span><span class="g">Total</span><span class="g">${money(d.total,d.moneda)}</span></div>
    <p class="muted" style="font-size:12.5px">Son: ${esc(enLetras(d.total,d.moneda))}</p>
    ${d.observaciones?`<div><div class="eyebrow">Observaciones</div><p style="margin-top:4px;white-space:pre-wrap">${esc(d.observaciones)}</p></div>`:''}
+   ${(d.cambiosNumero||[]).length?`<div class="note"><b>Número modificado</b> por un administrador: ${d.cambiosNumero.map(c=>esc(c.de)+' → '+esc(c.a)+' ('+fmtDate(c.fecha)+', '+esc(c.motivo)+')').join('; ')}</div>`:''}
    ${d.estado==='anulada'?`<div class="note" style="color:var(--bad)"><b>Anulada</b> el ${fmtDate(d.anuladaFecha)}. Motivo: ${esc(d.anuladaMotivo||'—')}</div>`:''}
    ${d.convertidoA?`<div class="note">Este documento se convirtió en ${esc((find('documentos',d.convertidoA)||{}).numero||'otro documento')}.</div>`:''}
    ${fiscal&&d.estado==='emitida'?`<div><h3 style="margin-bottom:10px">Cobros · saldo <span class="num">${money(saldo,d.moneda)}</span></h3>
@@ -1000,7 +1001,8 @@ function viewDoc(id,keep){
      ${CAN.write&&saldo>0.004?`<div class="paybox" id="payform"${prevPay?'':' hidden'}><div class="row"><div class="field"><label for="p-monto">Monto (${esc(monOf(d.moneda).simbolo)})</label><input class="inp" id="p-monto" type="number" step="any" min="0" value="${saldo}"></div><div class="field"><label for="p-fecha">Fecha</label><input class="inp" id="p-fecha" type="date" value="${today()}"></div><div class="field"><label for="p-met">Método</label><select class="inp" id="p-met">${opts(['Efectivo','Transferencia','Depósito','Cheque','Tarjeta'].map(x=>({v:x,l:x})),'Transferencia')}</select></div></div><div class="field"><label for="p-ref">Referencia (opcional)</label><input class="inp" id="p-ref" placeholder="No. de transferencia, cheque o recibo"></div><div class="acts"><button class="btn pri" data-act="pay-save" data-id="${d.id}">Guardar cobro</button></div></div>`:''}</div>`:''}
   </div>
   <div class="mf">
-   ${CAN.admin&&fiscal&&d.estado==='emitida'?`<span id="anul-box" style="margin-right:auto"><button class="btn bad" data-act="anular-ask" data-id="${d.id}">Anular</button></span>`:''}
+   ${CAN.admin&&d.numero&&d.estado!=='anulada'?`<span id="num-box" style="margin-right:auto"><button class="btn" data-act="num-ask" data-id="${d.id}">Cambiar número</button></span>`:''}
+   ${CAN.admin&&fiscal&&d.estado==='emitida'?`<span id="anul-box"><button class="btn bad" data-act="anular-ask" data-id="${d.id}">Anular</button></span>`:''}
    ${CAN.write&&d.estado==='borrador'?`<button class="btn bad" data-act="del-doc" data-id="${d.id}">${ic('trash')} Eliminar</button><button class="btn" data-act="edit-doc" data-id="${d.id}">${ic('edit')} Editar</button>`:''}
    ${CAN.write&&d.tipo==='cotizacion'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="proforma">A proforma</button>`:''}
    ${CAN.write&&d.tipo!=='factura'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="factura">A factura</button>`:''}
@@ -1163,6 +1165,13 @@ ACT['edit-doc']=d=>{const x=find('documentos',d.id);if(!x||x.estado!=='borrador'
 ACT.conv=d=>{const x=find('documentos',d.id);if(!x)return;draft=draftFrom(x,d.to);draft.tipo=d.to;closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo');toast('Revisa los datos y guarda para crear la '+TIPO[d.to].toLowerCase())};
 ACT['emit-row']=async d=>{const x=find('documentos',d.id);if(!x)return;await emitDoc(x);if(MODAL)viewDoc(d.id)};
 ACT['del-doc']=d=>{const x=find('documentos',d.id);ask('Eliminar borrador',`Se eliminará <b>${esc(x.numero||'este borrador')}</b>. Esta acción no se puede deshacer.`,'Eliminar',async()=>{if(await guard(()=>Store.del('documentos',d.id),'Borrador eliminado'))closeModal()},true)};
+ACT['num-ask']=d=>{const x=find('documentos',d.id);$('#num-box').outerHTML=`<span id="num-box" style="margin-right:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="inp mono" id="num-n" value="${esc(x.numero)}" aria-label="Nuevo número" style="width:230px"><input class="inp" id="num-m" placeholder="Motivo del cambio" style="width:220px"><button class="btn pri" data-act="num-do" data-id="${x.id}">Guardar</button></span>`};
+ACT['num-do']=async d=>{const x=find('documentos',d.id),n=val('num-n').trim(),m=val('num-m').trim();
+  if(!n)return toast('Escribe el nuevo número.',true);if(n===x.numero)return toast('El número es el mismo.',true);if(!m)return toast('Escribe el motivo del cambio.',true);
+  if(S.documentos.some(o=>o.id!==x.id&&o.numero===n))return toast('Ya existe un documento con ese número.',true);
+  if(x.tipo==='factura'&&x.cai&&!n.startsWith(x.cai.prefijo+'-'))return toast('El número debe empezar con '+x.cai.prefijo+'- (el prefijo del CAI de esta factura).',true);
+  const h=(x.cambiosNumero||[]).concat([{de:x.numero,a:n,motivo:m,fecha:today()}]);
+  if(await guard(()=>Store.put('documentos',x.id,Object.assign({},x,{numero:n,cambiosNumero:h})),'Número actualizado'))viewDoc(d.id)};
 ACT['anular-ask']=d=>{$('#anul-box').outerHTML=`<span id="anul-box" style="margin-right:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="inp" id="anul-m" placeholder="Motivo de la anulación" style="width:240px"><button class="btn bad" data-act="anular-do" data-id="${d.id}">Confirmar anulación</button></span>`;$('#anul-m').focus()};
 ACT['anular-do']=async d=>{const m=val('anul-m');if(!m)return toast('Escribe el motivo de la anulación.',true);const x=find('documentos',d.id);
   if(await guard(()=>Store.put('documentos',x.id,Object.assign({},x,{estado:'anulada',anuladaMotivo:m,anuladaFecha:today()})),'Factura anulada'))viewDoc(d.id)};
