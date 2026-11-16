@@ -667,9 +667,9 @@ function buildFactura(d){
   y+=5;const bx2=R-82,lw2=52;let ty=y;
   stroke(BL);pdf.setLineWidth(.35);
   tr.forEach(([a,v])=>{fill(BL);pdf.rect(bx2,ty,lw2,RW,'FD');ink(WH);font('bold',9);T(a,bx2+3,ty+4.2);
-    fill(WH);pdf.rect(bx2+lw2,ty,82-lw2,RW,'FD');if(v!=null){ink(INK);font('bold',9.5);T(num(v),R-2.5,ty+4.3,{align:'right'})}ty+=RW});
+    fill(WH);pdf.rect(bx2+lw2,ty,82-lw2,RW,'FD');if(v!=null){ink(INK);font('bold',9.5);T(money(v),R-2.5,ty+4.3,{align:'right'})}ty+=RW});
   fill(BL);pdf.rect(bx2,ty,lw2,9,'FD');ink(WH);font('bold',11);T('Total a Pagar',bx2+3,ty+6.1);
-  fill(WH);pdf.rect(bx2+lw2,ty,82-lw2,9,'FD');ink(INK);font('bold',11.5);T(num(d.total),R-2.5,ty+6.2,{align:'right'});
+  fill(WH);pdf.rect(bx2+lw2,ty,82-lw2,9,'FD');ink(INK);font('bold',11.5);T(money(d.total),R-2.5,ty+6.2,{align:'right'});
   /* izquierda */
   const LWd=bx2-M-5;let ly=y+3;
   font('bold',9.5);ink(INK);const vl='Valor en Letras '+sym.replace('L.','L.')+':';T(vl,M,ly);const vw=pdf.getTextWidth(vl)+1.5;
@@ -697,7 +697,7 @@ async function pdfDoc(id){
 /* ============ borrador del editor ============ */
 function newDraft(tipo){
   return{tipo:tipo||'cotizacion',moneda:'HNL',tasa:1,fecha:today(),clienteId:'',cliente:{nombre:'',rtn:'',direccion:'',telefono:'',correo:''},guardarCliente:false,
-    lineas:[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false}],descuento:0,impuestoPct:+EMP.impuesto||15,observaciones:'',condicion:'contado',dias:30,estado:'borrador'};
+    lineas:[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false}],descuento:0,impuestoPct:+EMP.impuesto||15,observaciones:'',condicion:'contado',dias:0,estado:'borrador'};
 }
 function draftFrom(src,tipo){
   const d=newDraft(tipo);
@@ -741,6 +741,7 @@ function validateDraft(d){
   const ls=d.lineas.filter(l=>l.desc.trim());
   if(!ls.length)return 'Agrega al menos un artículo con descripción.';
   if(ls.some(l=>!(+l.cant>0)))return 'La cantidad de cada artículo debe ser mayor que 0.';
+  if(d.tipo==='factura'&&d.condicion==='credito'&&!(+d.dias>0))return 'Indica los días de crédito, o cambia la condición de pago a Contado.';
   return '';
 }
 async function persistDraft(){
@@ -915,7 +916,7 @@ VIEWS.nuevo=()=>{
      <div class="field"><label for="f-tipo">Tipo de documento</label><select class="inp" id="f-tipo" data-f="tipo"${editing?' disabled':''}>${opts([{v:'cotizacion',l:'Cotización'},{v:'proforma',l:'Factura proforma'},{v:'factura',l:'Factura (con CAI)'}],t)}</select></div>
      <div class="field"><label for="f-moneda">Moneda</label><select class="inp" id="f-moneda" data-f="moneda">${opts(MON.map(m=>({v:m.code,l:m.nombre+' ('+m.code+')'})),d.moneda)}</select></div>
      <div class="field"><label for="f-fecha">Fecha</label><input class="inp" type="date" id="f-fecha" data-f="fecha" value="${esc(d.fecha)}"></div>
-     ${t==='factura'?`<div class="field"><label for="f-condicion">Condición de pago</label><select class="inp" id="f-condicion" data-f="condicion">${opts([{v:'contado',l:'Contado'},{v:'credito',l:'Crédito'}],d.condicion)}</select></div>${d.condicion==='credito'?`<div class="field"><label for="f-dias">Días de crédito</label><input class="inp" type="number" min="1" id="f-dias" data-f="dias" value="${+d.dias||30}"></div>`:''}`:''}
+     ${t==='factura'?`<div class="field"><label for="f-condicion">Condición de pago</label><select class="inp" id="f-condicion" data-f="condicion">${opts([{v:'contado',l:'Contado'},{v:'credito',l:'Crédito'}],d.condicion)}</select></div>${d.condicion==='credito'?`<div class="field"><label for="f-dias">Días de crédito</label><input class="inp" type="number" min="1" id="f-dias" data-f="dias" value="${+d.dias||''}" placeholder="Ej. 15"></div>`:''}`:''}
     </div>
     ${t==='factura'?`<p class="hint" style="margin-top:12px">${caiOk?`La factura tomará el número <b class="mono">${esc(caiNum(caiOk,caiNext(caiOk)))}</b> al emitirse.`:`<span style="color:var(--bad);font-weight:600">No hay un CAI vigente para esta fecha.</span> Puedes guardar el borrador y emitirlo después.`}</p>`:''}
    </section>
