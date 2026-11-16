@@ -254,7 +254,7 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 const num=v=>{const n=parseFloat(String(v).replace(/,/g,''));return isFinite(n)?n:0};
 const TIPO={cotizacion:'Cotización',proforma:'Proforma',factura:'Factura'};
 const PREF={cotizacion:'COT',proforma:'PRO'};
-const COLS=['settings','clientes','productos','documentos','pagos','cai','recurrentes','contadores'];
+const COLS=['settings','clientes','productos','documentos','pagos','cai','recurrentes','contadores','bitacora'];
 
 const IC={
  panel:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -767,6 +767,13 @@ async function persistDraft(){
     lineas:d.lineas.map(l=>({prodId:l.prodId||'',desc:l.desc,cant:+l.cant,precio:+l.precio,dto:+l.dto||0,exento:!!l.exento})),descuento:t.descuento,descLineas:t.descLineas,impuestoPct:+d.impuestoPct||0,
     subtotal:t.subtotal,gravado:t.gravado,exento:t.exento,impuesto:t.impuesto,total:t.total,observaciones:d.observaciones||'',condicion:d.condicion||'contado',dias:+d.dias||0,
     estado:'borrador',origenId:d.origenId||'',recurrenteId:d.recurrenteId||'',creado:d.creado||new Date().toISOString(),actualizado:new Date().toISOString()};
+  const prev=d.id?find('documentos',d.id):null;
+  if(prev&&prev.estado!=='borrador'){
+    if(!CAN.admin)throw new Error('Solo un administrador puede modificar un documento emitido.');
+    ['estado','caiId','cai','emitida','anuladaMotivo','anuladaFecha','cambiosNumero','convertidoA'].forEach(k=>{if(prev[k]!==undefined)rec[k]=prev[k]});
+    rec.numero=prev.numero;rec.creado=prev.creado||rec.creado;
+    rec.ediciones=(prev.ediciones||[]).concat([{fecha:today(),antes:{total:prev.total,cliente:(prev.cliente||{}).nombre||'',fecha:prev.fecha}}]);
+  }
   await Store.put('documentos',id,rec);
   if(d.origenId){const o=find('documentos',d.origenId);if(o&&o.estado==='borrador'){await Store.put('documentos',o.id,Object.assign({},o,{estado:'convertida',convertidoA:id}))}}
   return Object.assign({id},rec);
@@ -951,10 +958,10 @@ VIEWS.nuevo=()=>{
    <div class="tot"><span style="font-weight:800">Total</span><b id="s-tot"></b></div>
    <p class="hint" style="margin-bottom:14px">Moneda: ${esc(mon.nombre)}. Tasa registrada: 1 ${esc(mon.code)} = ${fmtN(mon.tasa||1)} HNL.</p>
    <div class="stack" style="gap:10px">
-    ${t==='factura'?`<button class="btn pri lg" data-act="emit-draft"${caiOk?'':' disabled'}>${ic('shield')} Emitir factura</button><button class="btn lg" data-act="save-draft">Guardar borrador</button>`:`<button class="btn pri lg" data-act="save-draft">${ic('down')} Guardar ${t==='proforma'?'proforma':'cotización'}</button>`}
+    ${editing&&d.estado&&d.estado!=='borrador'?`<button class="btn pri lg" data-act="save-draft">${ic('down')} Guardar cambios</button>`:t==='factura'?`<button class="btn pri lg" data-act="emit-draft"${caiOk?'':' disabled'}>${ic('shield')} Emitir factura</button><button class="btn lg" data-act="save-draft">Guardar borrador</button>`:`<button class="btn pri lg" data-act="save-draft">${ic('down')} Guardar ${t==='proforma'?'proforma':'cotización'}</button>`}
     <button class="btn lg" data-act="cancel-draft">Cancelar</button>
    </div>
-   ${t==='factura'?`<p class="hint" style="margin-top:12px">Una factura emitida ya no se puede editar. Si hay un error, se anula y se emite otra.</p>`:''}
+   ${t==='factura'?`<p class="hint" style="margin-top:12px">Una factura emitida solo la puede modificar o eliminar un administrador. Lo habitual, si hay un error, es anularla y emitir otra.</p>`:''}
   </aside></div>`;
 };
 
@@ -1004,7 +1011,7 @@ function viewDoc(id,keep){
   <div class="mf">
    ${CAN.admin&&d.numero&&d.estado!=='anulada'?`<span id="num-box" style="margin-right:auto"><button class="btn" data-act="num-ask" data-id="${d.id}">Cambiar número</button></span>`:''}
    ${CAN.admin&&fiscal&&d.estado==='emitida'?`<span id="anul-box"><button class="btn bad" data-act="anular-ask" data-id="${d.id}">Anular</button></span>`:''}
-   ${CAN.write&&d.estado==='borrador'?`<button class="btn bad" data-act="del-doc" data-id="${d.id}">${ic('trash')} Eliminar</button><button class="btn" data-act="edit-doc" data-id="${d.id}">${ic('edit')} Editar</button>`:''}
+   ${(CAN.write&&d.estado==='borrador')||CAN.admin?`<button class="btn bad" data-act="del-doc" data-id="${d.id}">${ic('trash')} Eliminar</button><button class="btn" data-act="edit-doc" data-id="${d.id}">${ic('edit')} Editar</button>`:''}
    ${CAN.write&&d.tipo==='cotizacion'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="proforma">A proforma</button>`:''}
    ${CAN.write&&d.tipo!=='factura'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="factura">A factura</button>`:''}
    ${CAN.write&&fiscal&&d.estado==='borrador'?`<button class="btn pri" data-act="emit-row" data-id="${d.id}">${ic('shield')} Emitir factura</button>`:''}
@@ -1162,10 +1169,20 @@ ACT.theme=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dataset.t
 const themeIcon=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;$('#themebtn').innerHTML=ic(dark?'sun':'moon')};
 ACT['add-line']=()=>{draft.lineas.push({prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false});renderPage()};
 ACT['del-line']=d=>{draft.lineas.splice(+d.i,1);renderPage()};
-ACT['edit-doc']=d=>{const x=find('documentos',d.id);if(!x||x.estado!=='borrador')return;draft=Object.assign(clone(x),{guardarCliente:false,lineas:clone(x.lineas).map(l=>Object.assign({guardar:false},l))});closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo')};
+ACT['edit-doc']=d=>{const x=find('documentos',d.id);if(!x||(x.estado!=='borrador'&&!CAN.admin))return;draft=Object.assign(clone(x),{guardarCliente:false,lineas:clone(x.lineas).map(l=>Object.assign({guardar:false},l))});closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo')};
 ACT.conv=d=>{const x=find('documentos',d.id);if(!x)return;draft=draftFrom(x,d.to);draft.tipo=d.to;closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo');toast('Revisa los datos y guarda para crear la '+TIPO[d.to].toLowerCase())};
 ACT['emit-row']=async d=>{const x=find('documentos',d.id);if(!x)return;await emitDoc(x);if(MODAL)viewDoc(d.id)};
-ACT['del-doc']=d=>{const x=find('documentos',d.id);ask('Eliminar borrador',`Se eliminará <b>${esc(x.numero||'este borrador')}</b>. Esta acción no se puede deshacer.`,'Eliminar',async()=>{if(await guard(()=>Store.del('documentos',d.id),'Borrador eliminado'))closeModal()},true)};
+ACT['del-doc']=d=>{const x=find('documentos',d.id);if(!x)return;const em=x.estado!=='borrador'&&x.tipo==='factura'&&x.estado!=='convertida';
+  const msg=em?`Vas a eliminar la factura <b>${esc(x.numero)}</b> ya emitida. Su número quedará sin usar y puede romper el correlativo del CAI. Se borrarán también sus cobros y se guardará una copia en la bitácora. Esta acción no se puede deshacer.`:`Se eliminará <b>${esc(x.numero||'este borrador')}</b>. Esta acción no se puede deshacer.`;
+  ask(em?'Eliminar factura emitida':'Eliminar documento',msg,'Eliminar',async()=>{
+    if(await guard(async()=>{
+      if(x.estado!=='borrador'){
+        const ps=S.pagos.filter(p=>p.docId===x.id);
+        await Store.put('bitacora','b-'+uid(),{accion:'eliminar',fecha:new Date().toISOString(),numero:x.numero||'',documento:x,pagos:ps});
+        for(const p of ps)await Store.del('pagos',p.id);
+      }
+      await Store.del('documentos',d.id);
+    },'Documento eliminado'))closeModal()},true)};
 ACT['num-ask']=d=>{const x=find('documentos',d.id);$('#num-box').outerHTML=`<span id="num-box" style="margin-right:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="inp mono" id="num-n" value="${esc(x.numero)}" aria-label="Nuevo número" style="width:230px"><input class="inp" id="num-m" placeholder="Motivo del cambio" style="width:220px"><button class="btn pri" data-act="num-do" data-id="${x.id}">Guardar</button></span>`};
 ACT['num-do']=async d=>{const x=find('documentos',d.id),n=val('num-n').trim(),m=val('num-m').trim();
   if(!n)return toast('Escribe el nuevo número.',true);if(n===x.numero)return toast('El número es el mismo.',true);if(!m)return toast('Escribe el motivo del cambio.',true);
