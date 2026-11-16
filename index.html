@@ -713,7 +713,7 @@ function updateSummary(){
 function convPrice(p,fromCode,toCode){return r2(p*(monOf(fromCode).tasa||1)/(monOf(toCode).tasa||1))}
 function draftField(f,t){
   const d=draft,v=t.type==='checkbox'?t.checked:t.value;
-  if(f==='tipo'){d.tipo=v;renderPage();return}
+  if(f==='tipo'){d.tipo=v;if(!d.id)d.numero='';renderPage();return}
   if(f==='moneda'){d.moneda=v;d.tasa=monOf(v).tasa||1;renderPage();return}
   if(f==='clienteId'){
     d.clienteId=v;const c=find('clientes',v);
@@ -741,6 +741,7 @@ function validateDraft(d){
   const ls=d.lineas.filter(l=>l.desc.trim());
   if(!ls.length)return 'Agrega al menos un artículo con descripción.';
   if(ls.some(l=>!(+l.cant>0)))return 'La cantidad de cada artículo debe ser mayor que 0.';
+  if(d.tipo!=='factura'){d.numero=(d.numero||'').trim();if(d.numero&&S.documentos.some(o=>o.id!==d.id&&o.numero===d.numero))return 'Ya existe un documento con el número '+d.numero+'. Escribe otro o déjalo vacío para que sea automático.'}
   if(d.tipo==='factura'&&d.condicion==='credito'&&!(+d.dias>0))return 'Indica los días de crédito, o cambia la condición de pago a Contado.';
   return '';
 }
@@ -759,8 +760,7 @@ async function persistDraft(){
   let numero=d.numero||'';
   if(!d.id&&d.tipo!=='factura'){
     const start=cnt(d.tipo==='cotizacion'?'cot':'pro')??1;
-    const n=await Store.next(d.tipo==='cotizacion'?'cot':'pro',1);
-    numero=PREF[d.tipo]+'-'+pad(n,7);
+    if(!numero){let n,k=0;do{n=await Store.next(d.tipo==='cotizacion'?'cot':'pro',1);numero=PREF[d.tipo]+'-'+pad(n,7)}while(S.documentos.some(o=>o.numero===numero)&&++k<200)}
   }
   const vence=d.tipo==='factura'&&d.condicion==='credito'?addDays(d.fecha,+d.dias||0):'';
   const rec={tipo:d.tipo,numero,fecha:d.fecha,vence,moneda:d.moneda,tasa:d.tasa||monOf(d.moneda).tasa||1,clienteId:d.clienteId||'',cliente:d.cliente,
@@ -923,6 +923,7 @@ VIEWS.nuevo=()=>{
      <div class="field"><label for="f-tipo">Tipo de documento</label><select class="inp" id="f-tipo" data-f="tipo"${editing?' disabled':''}>${opts([{v:'cotizacion',l:'Cotización'},{v:'proforma',l:'Factura proforma'},{v:'factura',l:'Factura (con CAI)'}],t)}</select></div>
      <div class="field"><label for="f-moneda">Moneda</label><select class="inp" id="f-moneda" data-f="moneda">${opts(MON.map(m=>({v:m.code,l:m.nombre+' ('+m.code+')'})),d.moneda)}</select></div>
      <div class="field"><label for="f-fecha">Fecha</label><input class="inp" type="date" id="f-fecha" data-f="fecha" value="${esc(d.fecha)}"></div>
+     ${t!=='factura'&&(!editing||d.estado==='borrador'||CAN.admin)?`<div class="field"><label for="f-numero">Número de ${t==='proforma'?'proforma':'cotización'}</label><input class="inp mono" id="f-numero" data-f="numero" value="${esc(d.numero||'')}" placeholder="Automático: ${PREF[t]}-${pad(cnt(t==='cotizacion'?'cot':'pro')??1,7)}"></div>`:''}
      ${t==='factura'?`<div class="field"><label for="f-condicion">Condición de pago</label><select class="inp" id="f-condicion" data-f="condicion">${opts([{v:'contado',l:'Contado'},{v:'credito',l:'Crédito'}],d.condicion)}</select></div>${d.condicion==='credito'?`<div class="field"><label for="f-dias">Días de crédito</label><input class="inp" type="number" min="1" id="f-dias" data-f="dias" value="${+d.dias||''}" placeholder="Ej. 15"></div>`:''}`:''}
     </div>
     ${t==='factura'?`<p class="hint" style="margin-top:12px">${caiOk?`La factura tomará el número <b class="mono">${esc(caiNum(caiOk,caiNext(caiOk)))}</b> al emitirse.`:`<span style="color:var(--bad);font-weight:600">No hay un CAI vigente para esta fecha.</span> Puedes guardar el borrador y emitirlo después.`}</p>`:''}
@@ -1060,7 +1061,7 @@ VIEWS.cai=()=>head('Control CAI','Rangos autorizados por el SAR. El sistema nume
    <div class="cai-code">${esc(c.codigo)}</div>
    <div class="kv"><div><span>Desde</span><b class="mono">${pad(c.desde,8)}</b></div><div><span>Hasta</span><b class="mono">${pad(c.hasta,8)}</b></div><div><span>Siguiente</span><b class="mono">${nx<=+c.hasta?pad(nx,8):'—'}</b></div><div><span>Fecha límite</span><b>${fmtDate(c.limite)}</b></div></div>
    <div><div class="bar ${st.left<=50?'low':''}"><i style="width:${Math.min(100,Math.max(1,used/tot*100))}%"></i></div><div class="hint" style="margin-top:6px">${used.toLocaleString('en-US')} usados · ${st.left.toLocaleString('en-US')} disponibles</div></div>
-   ${CAN.admin?`<div class="acts" style="justify-content:flex-start"><button class="btn sm" data-act="cai-toggle" data-id="${c.id}">${c.activo?'Desactivar':'Activar'}</button><button class="btn sm" data-act="cai-edit" data-id="${c.id}">${ic('edit')} Editar</button>${used===0?`<button class="btn sm bad" data-act="cai-del" data-id="${c.id}">${ic('trash')}</button>`:''}</div>`:''}</div>`}).join('')}</div>`:`<div class="card"><div class="empty"><h3>Aún no hay un CAI registrado</h3>Copia el código, el rango y la fecha límite desde la autorización del SAR.${CAN.admin?`<div style="margin-top:14px"><button class="btn pri" data-act="cai-edit">${ic('plus')} Registrar CAI</button></div>`:''}</div></div>`)+
+   ${CAN.admin?`<div class="acts" style="justify-content:flex-start"><button class="btn sm" data-act="cai-toggle" data-id="${c.id}">${c.activo?'Desactivar':'Activar'}</button><button class="btn sm" data-act="cai-edit" data-id="${c.id}">${ic('edit')} Editar</button><button class="btn sm bad" data-act="cai-del" data-id="${c.id}" aria-label="Eliminar CAI">${ic('trash')}</button></div>`:''}</div>`}).join('')}</div>`:`<div class="card"><div class="empty"><h3>Aún no hay un CAI registrado</h3>Copia el código, el rango y la fecha límite desde la autorización del SAR.${CAN.admin?`<div style="margin-top:14px"><button class="btn pri" data-act="cai-edit">${ic('plus')} Registrar CAI</button></div>`:''}</div></div>`)+
   `<p class="note" style="margin-top:18px">El sistema avisa cuando quedan 50 números o menos, o faltan 30 días para el límite de emisión. Antes de usarlo en producción, confirma con tu contador que los datos impresos cumplen con lo que exige el SAR.</p>`;
 /* ---- Recurrentes ---- */
 VIEWS.recurrentes=()=>{
@@ -1136,7 +1137,8 @@ ACT['cai-save']=async d=>{const o={codigo:val('m-cai').toUpperCase(),prefijo:val
   const id=d.id||'cai-'+uid();
   if(await guard(async()=>{await Store.put('cai',id,o);if(nx!==null&&nx!==cnt('cai-'+id))await Store.put('contadores','cai-'+id,{next:nx})},'CAI guardado'))closeModal()};
 ACT['cai-toggle']=d=>{const c=find('cai',d.id);guard(()=>Store.put('cai',c.id,Object.assign({},c,{activo:!c.activo})),c.activo?'CAI desactivado':'CAI activado')};
-ACT['cai-del']=d=>ask('Eliminar CAI','Este CAI no ha emitido facturas, se puede eliminar sin afectar la numeración.','Eliminar',()=>guard(()=>Store.del('cai',d.id),'CAI eliminado'),true);
+ACT['cai-del']=d=>{const c=find('cai',d.id);if(!c)return;const used=S.documentos.filter(x=>x.caiId===c.id&&x.estado!=='borrador').length;
+  ask('Eliminar CAI',used?`Este CAI ya emitió <b>${used}</b> factura(s). Las facturas conservan sus datos, pero el CAI dejará de aparecer en el control y no podrás seguir emitiendo con él.`:'Este CAI no ha emitido facturas, se puede eliminar sin afectar la numeración.','Eliminar',()=>guard(()=>Store.del('cai',d.id),'CAI eliminado'),true)};
 ACT['rec-edit']=d=>{const r=d.id?find('recurrentes',d.id):{moneda:'HNL',activo:true,dia:1,proxima:today(),dias:15};
   openModal(`<div class="mh"><div class="grow"><h2>${d.id?'Editar contrato':'Nuevo contrato recurrente'}</h2></div><button class="icon-btn" data-act="close-modal" aria-label="Cerrar">${ic('x')}</button></div><div class="mb"><div class="field"><label for="m-cli">Cliente</label><select class="inp" id="m-cli"><option value="">Selecciona un cliente</option>${S.clientes.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(c=>`<option value="${c.id}"${c.id===r.clienteId?' selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div>${f('m-desc','Servicio que se factura',r.desc||'','placeholder="Internet corporativo 50 Mbps"')}<div class="row">${f('m-monto','Monto mensual (sin ISV)',r.monto||'','type="number" step="any" min="0"')}<div class="field"><label for="m-mon">Moneda</label><select class="inp" id="m-mon">${opts(MON.map(m=>({v:m.code,l:m.code})),r.moneda)}</select></div>${f('m-prox','Próximo cobro',r.proxima||'','type="date"')}${f('m-dia','Día de cobro cada mes (1 a 28)',r.dia||1,'type="number" min="1" max="28"')}${f('m-dias','Días de crédito',r.dias||0,'type="number" min="0"')}</div><label class="chk"><input type="checkbox" id="m-exento"${r.exento?' checked':''}> Exento de ISV</label><label class="chk"><input type="checkbox" id="m-act"${r.activo?' checked':''}> Contrato activo</label></div><div class="mf"><button class="btn" data-act="close-modal">Cancelar</button><button class="btn pri" data-act="rec-save" data-id="${d.id||''}">Guardar</button></div>`,true)};
 ACT['rec-save']=async d=>{const o={clienteId:val('m-cli'),desc:val('m-desc'),monto:num(val('m-monto')),moneda:val('m-mon'),proxima:val('m-prox'),dia:Math.min(28,Math.max(1,Math.round(num(val('m-dia'))||1))),dias:Math.round(num(val('m-dias'))),exento:chk('m-exento'),activo:chk('m-act')};
