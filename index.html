@@ -271,6 +271,7 @@ const IC={
  plus:'<path d="M12 5v14M5 12h14"/>',
  eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
  edit:'<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+ copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
  down:'<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
  check:'<path d="m5 12.5 4.5 4.5L19 7.5"/>',
@@ -901,6 +902,7 @@ function docActions(d){
   else if(d.tipo==='proforma'&&d.estado==='borrador')a.push(`<button class="btn sm" data-act="conv" data-id="${d.id}" data-to="factura">A factura</button>`);
   else if(d.tipo==='factura'&&d.estado==='borrador')a.push(`<button class="btn sm pri" data-act="emit-row" data-id="${d.id}">Emitir</button>`);
   else if(e.key==='emitida'||e.key==='parcial'||e.key==='vencida')a.push(`<button class="btn sm soft" data-act="pay-open" data-id="${d.id}">Cobrar</button>`);
+  if(CAN.write)a.push(`<button class="btn sm" data-act="dup" data-id="${d.id}" aria-label="Duplicar" title="Duplicar">${ic('copy')}</button>`);
   if(d.estado==='borrador')a.push(`<button class="btn sm" data-act="edit-doc" data-id="${d.id}" aria-label="Editar">${ic('edit')}</button>`);
   return a.join('');
 }
@@ -1012,6 +1014,7 @@ function viewDoc(id,keep){
   <div class="mf">
    ${CAN.admin&&d.numero&&d.estado!=='anulada'?`<span id="num-box" style="margin-right:auto"><button class="btn" data-act="num-ask" data-id="${d.id}">Cambiar número</button></span>`:''}
    ${CAN.admin&&fiscal&&d.estado==='emitida'?`<span id="anul-box"><button class="btn bad" data-act="anular-ask" data-id="${d.id}">Anular</button></span>`:''}
+   ${CAN.write?`<button class="btn" data-act="dup" data-id="${d.id}">${ic('copy')} Duplicar</button>`:''}
    ${(CAN.write&&d.estado==='borrador')||CAN.admin?`<button class="btn bad" data-act="del-doc" data-id="${d.id}">${ic('trash')} Eliminar</button><button class="btn" data-act="edit-doc" data-id="${d.id}">${ic('edit')} Editar</button>`:''}
    ${CAN.write&&d.tipo==='cotizacion'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="proforma">A proforma</button>`:''}
    ${CAN.write&&d.tipo!=='factura'&&d.estado==='borrador'?`<button class="btn" data-act="conv" data-id="${d.id}" data-to="factura">A factura</button>`:''}
@@ -1175,6 +1178,7 @@ const themeIcon=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dat
 ACT['add-line']=()=>{draft.lineas.push({prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false});renderPage()};
 ACT['del-line']=d=>{draft.lineas.splice(+d.i,1);renderPage()};
 ACT['edit-doc']=d=>{const x=find('documentos',d.id);if(!x||(x.estado!=='borrador'&&!CAN.admin))return;draft=Object.assign(clone(x),{guardarCliente:false,lineas:clone(x.lineas).map(l=>Object.assign({guardar:false},l))});closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo')};
+ACT.dup=d=>{const x=find('documentos',d.id);if(!x)return;draft=draftFrom(x,x.tipo);delete draft.origenId;draft.dias=x.condicion==='credito'?(+x.dias||0):0;closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo');toast('Copia de '+(x.numero||'borrador')+': cambia lo necesario y guarda. Recibirá un número nuevo.')};
 ACT.conv=d=>{const x=find('documentos',d.id);if(!x)return;draft=draftFrom(x,d.to);draft.tipo=d.to;closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo');toast('Revisa los datos y guarda para crear la '+TIPO[d.to].toLowerCase())};
 ACT['emit-row']=async d=>{const x=find('documentos',d.id);if(!x)return;await emitDoc(x);if(MODAL)viewDoc(d.id)};
 ACT['del-doc']=d=>{const x=find('documentos',d.id);if(!x)return;const em=x.estado!=='borrador'&&x.tipo==='factura'&&x.estado!=='convertida';
