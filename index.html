@@ -386,12 +386,12 @@ function pickCai(fecha){
   return S.cai.filter(c=>c.activo&&(!c.limite||c.limite>=fecha)&&caiNext(c)<=+c.hasta).sort((a,b)=>(a.limite||'9').localeCompare(b.limite||'9'))[0];
 }
 function calc(d){
-  let sub=0,ld=0,grav=0,exen=0;
-  d.lineas.forEach(l=>{const g=r2((+l.cant||0)*(+l.precio||0)),x=Math.min(r2(+l.dto||0),g),n=r2(g-x);sub+=g;ld+=x;if(l.exento)exen+=n;else grav+=n});
-  sub=r2(sub);ld=r2(ld);const base=r2(grav+exen),desc=Math.min(r2(+d.descuento||0),base);
-  let dg=0;if(base>0)dg=r2(desc*grav/base);const de=r2(desc-dg);
-  const g=r2(grav-dg),e=r2(exen-de),isv=r2(g*(+d.impuestoPct||0)/100);
-  return{subtotal:sub,descLineas:ld,descuento:desc,gravado:g,exento:e,impuesto:isv,total:r2(g+e+isv)};
+  let sub=0,ld=0,grav=0,exen=0,exon=0;
+  d.lineas.forEach(l=>{const g=r2((+l.cant||0)*(+l.precio||0)),x=Math.min(r2(+l.dto||0),g),n=r2(g-x);sub+=g;ld+=x;if(l.exonerado)exon+=n;else if(l.exento)exen+=n;else grav+=n});
+  sub=r2(sub);ld=r2(ld);const base=r2(grav+exen+exon),desc=Math.min(r2(+d.descuento||0),base);
+  let dg=0,de=0;if(base>0){dg=r2(desc*grav/base);de=r2(desc*exen/base)}const dx=r2(desc-dg-de);
+  const g=r2(grav-dg),e=r2(exen-de),xo=r2(exon-dx),isv=r2(g*(+d.impuestoPct||0)/100);
+  return{subtotal:sub,descLineas:ld,descuento:desc,gravado:g,exento:e,exonerado:xo,impuesto:isv,total:r2(g+e+xo+isv)};
 }
 const paidOf=id=>r2(S.pagos.filter(p=>p.docId===id).reduce((a,p)=>a+(+p.monto||0),0));
 function estadoDoc(d){
@@ -531,7 +531,7 @@ function buildPdf(d){
   head();
   d.lineas.forEach(l=>{
     font('normal',8.4);
-    const dls=lines(l.desc+(l.exento?'  (exento)':''),cw[1]-5),h=Math.max(8,dls.length*3.9+5);
+    const dls=lines(l.desc+(l.exonerado?'  (exonerado)':l.exento?'  (exento)':''),cw[1]-5),h=Math.max(8,dls.length*3.9+5);
     if(y+h>H-FOOT-4){pdf.addPage();frame();y=22;head()}
     stroke(BL);pdf.setLineWidth(.25);cw.forEach((w,i)=>pdf.rect(cx[i],y,w,h,'S'));
     ink(INK);const ty=y+h/2+1.2,g=r2(l.cant*l.precio),dto=Math.min(+l.dto||0,g);
@@ -544,7 +544,8 @@ function buildPdf(d){
   });
   /* totales */
   const tr=[['Sub-total',d.subtotal],['Descuentos y rebajas',r2((d.descuento||0)+(d.descLineas||0))]];
-  if(fiscal||d.exento>0)tr.push(['Importe gravado',d.gravado],['Importe exento',d.exento]);
+  if(fiscal||d.exento>0||d.exonerado>0)tr.push(['Importe gravado',d.gravado],['Importe exento',d.exento]);
+  if(d.exonerado>0)tr.push(['Importe exonerado',d.exonerado]);
   tr.push(['Impuestos ('+(+d.impuestoPct||0)+'%)',d.impuesto]);
   const th=tr.length*6.4+9.4;
   if(y+th>H-FOOT-4){pdf.addPage();frame();y=22}
@@ -642,7 +643,7 @@ function buildFactura(d){
   const RH=9.5,MINR=6;let drawn=0;
   const cell=(h)=>{stroke(BL);pdf.setLineWidth(.35);cw.forEach((w,i)=>pdf.rect(cx[i],y,w,h,'S'))};
   d.lineas.forEach(l=>{
-    font('bold',10);const dls=lines(l.desc+(l.exento?'  (exento)':''),cw[1]-5),h=Math.max(RH,dls.length*4.2+4);
+    font('bold',10);const dls=lines(l.desc+(l.exonerado?'  (exonerado)':l.exento?'  (exento)':''),cw[1]-5),h=Math.max(RH,dls.length*4.2+4);
     if(y+h>H-FOOT-6){pdf.addPage();frame();y=26;head()}
     cell(h);ink(INK);const g=r2(l.cant*l.precio),dto=Math.min(+l.dto||0,g),ty=y+h/2+1.3;font('bold',10);
     T(String(l.cant),cx[0]+cw[0]/2,ty,{align:'center'});
@@ -698,17 +699,17 @@ async function pdfDoc(id){
 /* ============ borrador del editor ============ */
 function newDraft(tipo){
   return{tipo:tipo||'cotizacion',moneda:'HNL',tasa:1,fecha:today(),clienteId:'',cliente:{nombre:'',rtn:'',direccion:'',telefono:'',correo:''},guardarCliente:false,
-    lineas:[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false}],descuento:0,impuestoPct:+EMP.impuesto||15,observaciones:'',condicion:'contado',dias:0,estado:'borrador'};
+    lineas:[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,exonerado:false,guardar:false}],ordenExenta:'',constanciaExonerado:'',registroSag:'',descuento:0,impuestoPct:+EMP.impuesto||15,observaciones:'',condicion:'contado',dias:0,estado:'borrador'};
 }
 function draftFrom(src,tipo){
   const d=newDraft(tipo);
-  Object.assign(d,{moneda:src.moneda,tasa:src.tasa,clienteId:src.clienteId||'',cliente:clone(src.cliente),lineas:clone(src.lineas).map(l=>Object.assign({guardar:false},l)),descuento:src.descuento,impuestoPct:src.impuestoPct,observaciones:src.observaciones||'',origenId:src.id,condicion:src.condicion||'contado',dias:src.dias||30});
+  Object.assign(d,{moneda:src.moneda,tasa:src.tasa,clienteId:src.clienteId||'',cliente:clone(src.cliente),lineas:clone(src.lineas).map(l=>Object.assign({guardar:false},l)),descuento:src.descuento,impuestoPct:src.impuestoPct,observaciones:src.observaciones||'',ordenExenta:src.ordenExenta||'',constanciaExonerado:src.constanciaExonerado||'',registroSag:src.registroSag||'',origenId:src.id,condicion:src.condicion||'contado',dias:src.dias||30});
   return d;
 }
 function updateSummary(){
   if(!draft||CUR!=='nuevo')return;
   const t=calc(draft),c=draft.moneda,set=(id,v)=>{const e=$('#'+id);if(e)e.textContent=v};
-  set('s-sub',moneyT(t.subtotal,c));set('s-dl',moneyT(t.descLineas,c));set('s-isv',moneyT(t.impuesto,c));set('s-tot',moneyT(t.total,c));set('s-gra',moneyT(t.gravado,c));set('s-exe',moneyT(t.exento,c));
+  set('s-sub',moneyT(t.subtotal,c));set('s-dl',moneyT(t.descLineas,c));set('s-isv',moneyT(t.impuesto,c));set('s-tot',moneyT(t.total,c));set('s-gra',moneyT(t.gravado,c));set('s-exe',moneyT(t.exento,c));set('s-exo',moneyT(t.exonerado,c));
   draft.lineas.forEach((l,i)=>{const g=r2((+l.cant||0)*(+l.precio||0));set('imp-'+i,fmtN(r2(g-Math.min(r2(+l.dto||0),g))))});
 }
 function convPrice(p,fromCode,toCode){return r2(p*(monOf(fromCode).tasa||1)/(monOf(toCode).tasa||1))}
@@ -732,6 +733,7 @@ function draftLine(i,k,t){
     if(p){l.desc=p.nombre;l.precio=convPrice(+p.precio||0,p.moneda||'HNL',draft.moneda);l.exento=!!p.exento;l.guardar=false}
     renderPage();return;
   }
+  if(k==='exonerado'||k==='exento'){l[k]=v;if(v)l[k==='exento'?'exonerado':'exento']=false;renderPage();return}
   if(k==='cant'||k==='precio'||k==='dto')l[k]=num(v);else l[k]=v;
   updateSummary();
 }
@@ -748,7 +750,7 @@ function validateDraft(d){
 }
 async function persistDraft(){
   const d=draft;const err=validateDraft(d);if(err){toast(err,true);return null}
-  d.lineas=d.lineas.filter(l=>l.desc.trim());if(!d.lineas.length)d.lineas=[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false}];
+  d.lineas=d.lineas.filter(l=>l.desc.trim());if(!d.lineas.length)d.lineas=[{prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,exonerado:false}];
   /* catálogo */
   if(d.guardarCliente&&!d.clienteId&&d.cliente.nombre.trim()){
     const cid='c-'+uid();await Store.put('clientes',cid,Object.assign({},d.cliente,{creado:new Date().toISOString()}));d.clienteId=cid;
@@ -765,8 +767,8 @@ async function persistDraft(){
   }
   const vence=d.tipo==='factura'&&d.condicion==='credito'?addDays(d.fecha,+d.dias||0):'';
   const rec={tipo:d.tipo,numero,fecha:d.fecha,vence,moneda:d.moneda,tasa:d.tasa||monOf(d.moneda).tasa||1,clienteId:d.clienteId||'',cliente:d.cliente,
-    lineas:d.lineas.map(l=>({prodId:l.prodId||'',desc:l.desc,cant:+l.cant,precio:+l.precio,dto:+l.dto||0,exento:!!l.exento})),descuento:t.descuento,descLineas:t.descLineas,impuestoPct:+d.impuestoPct||0,
-    subtotal:t.subtotal,gravado:t.gravado,exento:t.exento,impuesto:t.impuesto,total:t.total,observaciones:d.observaciones||'',condicion:d.condicion||'contado',dias:+d.dias||0,
+    lineas:d.lineas.map(l=>({prodId:l.prodId||'',desc:l.desc,cant:+l.cant,precio:+l.precio,dto:+l.dto||0,exento:!!l.exento,exonerado:!!l.exonerado})),ordenExenta:d.tipo==='factura'?(d.ordenExenta||'').trim():'',constanciaExonerado:d.tipo==='factura'?(d.constanciaExonerado||'').trim():'',registroSag:d.tipo==='factura'?(d.registroSag||'').trim():'',descuento:t.descuento,descLineas:t.descLineas,impuestoPct:+d.impuestoPct||0,
+    subtotal:t.subtotal,gravado:t.gravado,exento:t.exento,exonerado:t.exonerado,impuesto:t.impuesto,total:t.total,observaciones:d.observaciones||'',condicion:d.condicion||'contado',dias:+d.dias||0,
     estado:'borrador',origenId:d.origenId||'',recurrenteId:d.recurrenteId||'',creado:d.creado||new Date().toISOString(),actualizado:new Date().toISOString()};
   const prev=d.id?find('documentos',d.id):null;
   if(prev&&prev.estado!=='borrador'){
@@ -947,15 +949,20 @@ VIEWS.nuevo=()=>{
       <div class="field lp"><label for="l-r-${i}">Precio (${esc(mon.simbolo)})</label><input class="inp" id="l-r-${i}" type="number" min="0" step="any" data-l="${i}" data-k="precio" value="${l.precio}"></div>
       <div class="field ldt"><label for="l-t-${i}">Descuento (${esc(mon.simbolo)})</label><input class="inp" id="l-t-${i}" type="number" min="0" step="any" data-l="${i}" data-k="dto" value="${+l.dto||0}"></div>
       <div class="li"><div class="lbl muted" style="text-align:right">Importe</div><div class="imp" id="imp-${i}">0.00</div></div></div>
-      <div style="display:flex;gap:18px;flex-wrap:wrap">${l.prodId?'':`<label class="chk"><input type="checkbox" data-l="${i}" data-k="guardar"${l.guardar?' checked':''}> Guardar este artículo en productos</label>`}<label class="chk"><input type="checkbox" data-l="${i}" data-k="exento"${l.exento?' checked':''}> Exento de ISV</label></div></div>`).join('')}
+      <div style="display:flex;gap:18px;flex-wrap:wrap">${l.prodId?'':`<label class="chk"><input type="checkbox" data-l="${i}" data-k="guardar"${l.guardar?' checked':''}> Guardar este artículo en productos</label>`}<label class="chk"><input type="checkbox" data-l="${i}" data-k="exento"${l.exento?' checked':''}> Exento de ISV</label><label class="chk"><input type="checkbox" data-l="${i}" data-k="exonerado"${l.exonerado?' checked':''}> Exonerado (sin ISV)</label></div></div>`).join('')}
    </section>
+   ${draft.tipo==='factura'?`<section class="card"><h2 style="margin-bottom:4px">Datos de exoneración (SAR)</h2><p class="hint" style="margin:0 0 12px">Se imprimen al pie de la factura. Déjelos vacíos si no aplican. Los artículos marcados como <b>Exonerado</b> no pagan ISV y salen en <b>Importe Exonerado</b>.</p>
+    <div class="row r2"><div class="field"><label for="f-oce">N° Correlativo de Orden de Compra Exenta</label><input class="inp" id="f-oce" data-f="ordenExenta" value="${esc(draft.ordenExenta||'')}"></div>
+    <div class="field"><label for="f-cre">N° Correlativo de Constancia de Registro Exonerado</label><input class="inp" id="f-cre" data-f="constanciaExonerado" value="${esc(draft.constanciaExonerado||'')}"></div>
+    <div class="field"><label for="f-sag">N° Identificativo del Registro de la SAG</label><input class="inp" id="f-sag" data-f="registroSag" value="${esc(draft.registroSag||'')}"></div></div>
+    <div style="margin-top:12px"><button type="button" class="btn sm" data-act="todo-exonerado">Marcar todos los artículos como exonerados</button></div></section>`:''}
    <section class="card"><div class="field"><label for="f-obs">Observaciones</label><textarea class="inp" id="f-obs" data-f="observaciones" placeholder="Condiciones de venta, vigencia de cotización, anotaciones…">${esc(d.observaciones)}</textarea></div></section>
   </div>
   <aside class="card sum"><h2 style="margin-bottom:16px">Resumen del documento</h2>
    <dl><dt>Subtotal</dt><dd id="s-sub"></dd>
    <dt>Descuentos por línea</dt><dd id="s-dl"></dd>
    <dt><label for="f-desc">Descuento (${esc(d.moneda)})</label></dt><dd><input class="inp" id="f-desc" type="number" min="0" step="any" data-f="descuento" value="${+d.descuento||0}" style="width:110px;text-align:right"></dd>
-   <dt>Importe gravado</dt><dd id="s-gra"></dd><dt>Importe exento</dt><dd id="s-exe"></dd>
+   <dt>Importe gravado</dt><dd id="s-gra"></dd><dt>Importe exento</dt><dd id="s-exe"></dd><dt>Importe exonerado</dt><dd id="s-exo"></dd>
    <dt><label for="f-isv">Impuesto (%)</label></dt><dd><input class="inp" id="f-isv" type="number" min="0" step="any" data-f="impuestoPct" value="${+d.impuestoPct||0}" style="width:110px;text-align:right"></dd>
    <dt>Impuesto</dt><dd id="s-isv"></dd></dl>
    <div class="tot"><span style="font-weight:800">Total</span><b id="s-tot"></b></div>
@@ -1000,8 +1007,8 @@ function viewDoc(id,keep){
     ${fiscal?`<div><span>Condición</span><b>${d.condicion==='credito'?'Crédito · vence '+fmtDate(d.vence):'Contado'}</b></div>`:''}
     <div><span>Moneda</span><b>${esc(monOf(d.moneda).nombre)}</b></div>${d.cliente.direccion?`<div style="grid-column:1/-1"><span>Dirección</span><b>${esc(d.cliente.direccion)}</b></div>`:''}</div>
    ${d.cai?`<div class="note"><b>CAI</b> <span class="mono" style="overflow-wrap:anywhere">${esc(d.cai.codigo)}</span><br>Rango autorizado: <span class="mono">${esc(caiNum(d.cai,d.cai.desde))}</span> al <span class="mono">${esc(caiNum(d.cai,d.cai.hasta))}</span> · límite de emisión ${fmtDate(d.cai.limite)}</div>`:''}
-   <div class="tw"><table style="min-width:520px"><thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Desc.</th><th class="r">Importe</th></tr></thead><tbody>${d.lineas.map(l=>`<tr><td>${esc(l.desc)}${l.exento?' <span class="badge" style="margin-left:6px">Exento</span>':''}</td><td class="r num">${l.cant}</td><td class="r num">${fmtN(l.precio)}</td><td class="r num">${l.dto>0?'-'+fmtN(l.dto):'—'}</td><td class="r num">${fmtN(r2(l.cant*l.precio-(l.dto||0)))}</td></tr>`).join('')}</tbody></table></div>
-   <div class="totals"><span>Subtotal</span><span>${fmtN(d.subtotal)}</span>${(d.descuento>0||d.descLineas>0)?`<span>Descuentos y rebajas</span><span>-${fmtN(r2((d.descuento||0)+(d.descLineas||0)))}</span>`:''}<span>Gravado</span><span>${fmtN(d.gravado)}</span><span>Exento</span><span>${fmtN(d.exento)}</span><span>ISV ${+d.impuestoPct}%</span><span>${fmtN(d.impuesto)}</span><span class="g">Total</span><span class="g">${money(d.total,d.moneda)}</span></div>
+   <div class="tw"><table style="min-width:520px"><thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Desc.</th><th class="r">Importe</th></tr></thead><tbody>${d.lineas.map(l=>`<tr><td>${esc(l.desc)}${l.exonerado?' <span class="badge" style="margin-left:6px">Exonerado</span>':l.exento?' <span class="badge" style="margin-left:6px">Exento</span>':''}</td><td class="r num">${l.cant}</td><td class="r num">${fmtN(l.precio)}</td><td class="r num">${l.dto>0?'-'+fmtN(l.dto):'—'}</td><td class="r num">${fmtN(r2(l.cant*l.precio-(l.dto||0)))}</td></tr>`).join('')}</tbody></table></div>
+   <div class="totals"><span>Subtotal</span><span>${fmtN(d.subtotal)}</span>${(d.descuento>0||d.descLineas>0)?`<span>Descuentos y rebajas</span><span>-${fmtN(r2((d.descuento||0)+(d.descLineas||0)))}</span>`:''}<span>Gravado</span><span>${fmtN(d.gravado)}</span><span>Exento</span><span>${fmtN(d.exento)}</span>${d.exonerado>0?`<span>Exonerado</span><span>${fmtN(d.exonerado)}</span>`:''}<span>ISV ${+d.impuestoPct}%</span><span>${fmtN(d.impuesto)}</span><span class="g">Total</span><span class="g">${money(d.total,d.moneda)}</span></div>
    <p class="muted" style="font-size:12.5px">Son: ${esc(enLetras(d.total,d.moneda))}</p>
    ${d.observaciones?`<div><div class="eyebrow">Observaciones</div><p style="margin-top:4px;white-space:pre-wrap">${esc(d.observaciones)}</p></div>`:''}
    ${(d.cambiosNumero||[]).length?`<div class="note"><b>Número modificado</b> por un administrador: ${d.cambiosNumero.map(c=>esc(c.de)+' → '+esc(c.a)+' ('+fmtDate(c.fecha)+', '+esc(c.motivo)+')').join('; ')}</div>`:''}
@@ -1175,7 +1182,8 @@ ACT['ask-yes']=async()=>{$('#confirm').hidden=true;const fn=ask.fn;if(fn)await f
 ACT.burger=()=>{$('#side').classList.toggle('open');$('#scrim').classList.toggle('open')};
 ACT.theme=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;r.dataset.theme=dark?'light':'dark';try{localStorage.setItem('innovanet-theme',r.dataset.theme)}catch(e){}themeIcon()};
 const themeIcon=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;$('#themebtn').innerHTML=ic(dark?'sun':'moon')};
-ACT['add-line']=()=>{draft.lineas.push({prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,guardar:false});renderPage()};
+ACT['todo-exonerado']=()=>{draft.lineas.forEach(l=>{l.exonerado=true;l.exento=false});renderPage()};
+ACT['add-line']=()=>{draft.lineas.push({prodId:'',desc:'',cant:1,precio:0,dto:0,exento:false,exonerado:false,guardar:false});renderPage()};
 ACT['del-line']=d=>{draft.lineas.splice(+d.i,1);renderPage()};
 ACT['edit-doc']=d=>{const x=find('documentos',d.id);if(!x||(x.estado!=='borrador'&&!CAN.admin))return;draft=Object.assign(clone(x),{guardarCliente:false,lineas:clone(x.lineas).map(l=>Object.assign({guardar:false},l))});closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo')};
 ACT.dup=d=>{const x=find('documentos',d.id);if(!x)return;draft=draftFrom(x,x.tipo);delete draft.origenId;draft.dias=x.condicion==='credito'?(+x.dias||0):0;closeModal();location.hash==='#nuevo'?renderPage():(location.hash='#nuevo');toast('Copia de '+(x.numero||'borrador')+': cambia lo necesario y guarda. Recibirá un número nuevo.')};
@@ -1236,8 +1244,8 @@ async function importCsv(kind,file){
 }
 const csvCell=v=>{v=String(v==null?'':v);return /[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
 ACT['export-csv']=()=>{
-  const rows=[['numero','tipo','estado','fecha','cliente','rtn','moneda','subtotal','descuento','gravado','exento','isv','total','saldo']];
-  histFiltered().forEach(d=>rows.push([d.numero,TIPO[d.tipo],estadoDoc(d).l,d.fecha,d.cliente.nombre,d.cliente.rtn,d.moneda,d.subtotal,d.descuento,d.gravado,d.exento,d.impuesto,d.total,d.tipo==='factura'&&d.estado==='emitida'?saldoOf(d):'']));
+  const rows=[['numero','tipo','estado','fecha','cliente','rtn','moneda','subtotal','descuento','gravado','exento','exonerado','isv','total','saldo']];
+  histFiltered().forEach(d=>rows.push([d.numero,TIPO[d.tipo],estadoDoc(d).l,d.fecha,d.cliente.nombre,d.cliente.rtn,d.moneda,d.subtotal,d.descuento,d.gravado,d.exento,d.exonerado||0,d.impuesto,d.total,d.tipo==='factura'&&d.estado==='emitida'?saldoOf(d):'']));
   download('documentos-'+today()+'.csv','﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n'),'text/csv');
 };
 ACT.backup=()=>{
