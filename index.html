@@ -531,7 +531,7 @@ function buildPdf(d){
   head();
   d.lineas.forEach(l=>{
     font('normal',8.4);
-    const dls=lines(l.desc+(l.exonerado?'  (exonerado)':l.exento?'  (exento)':''),cw[1]-5),h=Math.max(8,dls.length*3.9+5);
+    const dls=lines(l.desc+(l.exonerado?'':l.exento?'  (exento)':''),cw[1]-5),h=Math.max(8,dls.length*3.9+5);
     if(y+h>H-FOOT-4){pdf.addPage();frame();y=22;head()}
     stroke(BL);pdf.setLineWidth(.25);cw.forEach((w,i)=>pdf.rect(cx[i],y,w,h,'S'));
     ink(INK);const ty=y+h/2+1.2,g=r2(l.cant*l.precio),dto=Math.min(+l.dto||0,g);
@@ -643,7 +643,7 @@ function buildFactura(d){
   const RH=9.5,MINR=6;let drawn=0;
   const cell=(h)=>{stroke(BL);pdf.setLineWidth(.35);cw.forEach((w,i)=>pdf.rect(cx[i],y,w,h,'S'))};
   d.lineas.forEach(l=>{
-    font('bold',10);const dls=lines(l.desc+(l.exonerado?'  (exonerado)':l.exento?'  (exento)':''),cw[1]-5),h=Math.max(RH,dls.length*4.2+4);
+    font('bold',10);const dls=lines(l.desc,cw[1]-5),h=Math.max(RH,dls.length*4.2+4);
     if(y+h>H-FOOT-6){pdf.addPage();frame();y=26;head()}
     cell(h);ink(INK);const g=r2(l.cant*l.precio),dto=Math.min(+l.dto||0,g),ty=y+h/2+1.3;font('bold',10);
     T(String(l.cant),cx[0]+cw[0]/2,ty,{align:'center'});
