@@ -722,11 +722,25 @@ function updateSummary(){
   set('s-sub',moneyT(t.subtotal,c));set('s-dl',moneyT(t.descLineas,c));set('s-isv',moneyT(t.impuesto,c));set('s-tot',moneyT(t.total,c));set('s-gra',moneyT(t.gravado,c));set('s-exe',moneyT(t.exento,c));set('s-exo',moneyT(t.exonerado,c));
   draft.lineas.forEach((l,i)=>{const g=r2((+l.cant||0)*(+l.precio||0));set('imp-'+i,fmtN(r2(g-Math.min(r2(+l.dto||0),g))))});
 }
+/* Convierte los montos del borrador a otra moneda (y los restaura sin perder centavos al volver) */
+function convertDraft(newCode,newRate){
+  const d=draft,oldCode=d.moneda,oldRate=+d.tasa||monOf(oldCode).tasa||1;
+  const step=(h,sfx,cur)=>{
+    const O='_o'+sfx,K='_k'+sfx,k=h[K];
+    const base=(h[O]&&k&&k.c===oldCode&&k.p===cur.p&&k.d===cur.d)?h[O]:{c:oldCode,r:oldRate,p:cur.p,d:cur.d};
+    const out=newCode===base.c?{p:base.p,d:base.d}:{p:r2(base.p*base.r/newRate),d:r2(base.d*base.r/newRate)};
+    h[O]=base;h[K]={c:newCode,p:out.p,d:out.d};return out;
+  };
+  d.lineas.forEach(l=>{const o=step(l,'',{p:+l.precio||0,d:+l.dto||0});l.precio=o.p;l.dto=o.d});
+  d.descuento=step(d,'g',{p:+d.descuento||0,d:0}).p;
+}
 function convPrice(p,fromCode,toCode){return r2(p*(monOf(fromCode).tasa||1)/(monOf(toCode).tasa||1))}
 function draftField(f,t){
   const d=draft,v=t.type==='checkbox'?t.checked:t.value;
   if(f==='tipo'){d.tipo=v;if(!d.id)d.numero='';renderPage();return}
-  if(f==='moneda'){d.moneda=v;d.tasa=monOf(v).tasa||1;renderPage();return}
+  if(f==='moneda'){const rate=monOf(v).tasa||1;convertDraft(v,rate);d.moneda=v;d.tasa=rate;renderPage();
+    if(v!=='HNL'&&rate===1)toast('La tasa de '+v+' está en 1.00. Ajústala aquí abajo o en Monedas para que la conversión sea correcta.',true);
+    else if(d.lineas.some(l=>(+l.precio||0)>0))toast('Montos convertidos a '+v+' (1 '+v+' = '+fmtN(rate)+' HNL)');return}
   if(f==='clienteId'){
     d.clienteId=v;const c=find('clientes',v);
     if(c)d.cliente={nombre:c.nombre||'',rtn:c.rtn||'',direccion:c.direccion||'',telefono:c.telefono||'',correo:c.correo||''};
@@ -939,6 +953,7 @@ VIEWS.nuevo=()=>{
     <div class="row">
      <div class="field"><label for="f-tipo">Tipo de documento</label><select class="inp" id="f-tipo" data-f="tipo"${editing?' disabled':''}>${opts([{v:'cotizacion',l:'Cotización'},{v:'proforma',l:'Factura proforma'},{v:'factura',l:'Factura (con CAI)'}],t)}</select></div>
      <div class="field"><label for="f-moneda">Moneda</label><select class="inp" id="f-moneda" data-f="moneda">${opts(MON.map(m=>({v:m.code,l:m.nombre+' ('+m.code+')'})),d.moneda)}</select></div>
+     ${d.moneda!=='HNL'?`<div class="field"><label for="f-tasa">Tasa (1 ${esc(d.moneda)} = L)</label><input class="inp" id="f-tasa" type="number" min="0" step="any" data-tasa="1" value="${+d.tasa||monOf(d.moneda).tasa||1}"></div>`:''}
      <div class="field"><label for="f-fecha">Fecha</label><input class="inp" type="date" id="f-fecha" data-f="fecha" value="${esc(d.fecha)}"></div>
      ${t!=='factura'&&(!editing||d.estado==='borrador'||CAN.admin)?`<div class="field"><label for="f-numero">Número de ${t==='proforma'?'proforma':'cotización'}</label><input class="inp mono" id="f-numero" data-f="numero" value="${esc(d.numero||'')}" placeholder="Automático: ${PREF[t]}-${pad(cnt(t==='cotizacion'?'cot':'pro')??1,7)}"></div>`:''}
      ${t==='factura'?`<div class="field"><label for="f-condicion">Condición de pago</label><select class="inp" id="f-condicion" data-f="condicion">${opts([{v:'contado',l:'Contado'},{v:'credito',l:'Crédito'}],d.condicion)}</select></div>${d.condicion==='credito'?`<div class="field"><label for="f-dias">Días de crédito</label><input class="inp" type="number" min="1" id="f-dias" data-f="dias" value="${+d.dias||''}" placeholder="Ej. 15"></div>`:''}`:''}
@@ -1303,6 +1318,7 @@ document.addEventListener('change',e=>{
   }
   if(t.dataset.file&&t.files&&t.files[0]){const f0=t.files[0],k=t.dataset.file;t.value='';
     if(k==='csv-cli')importCsv('cli',f0);else if(k==='csv-prod')importCsv('prod',f0);else if(k==='restore')restore(f0);else if(k==='logo')loadLogo(f0);return}
+  if(t.dataset.tasa!==undefined&&draft&&CUR==='nuevo'){const nr=num(t.value);if(!(nr>0))return toast('Escribe una tasa mayor a cero.',true);convertDraft(draft.moneda,nr);draft.tasa=nr;renderPage();toast('Montos recalculados con la tasa '+fmtN(nr));return}
   onField(e,true);
 });
 
