@@ -366,14 +366,23 @@ const CAN={write:true,admin:true,owner:true};
 let ME=null,PERF=[],READY=false,CUR='panel',draft=null,RESTORED=0,saveT=null;
 /* ---- borrador automático (se guarda en este navegador mientras escribes) ---- */
 const DKEY=()=>'innovanet-borrador-'+((ME&&(ME.user_id||ME.id||ME.email))||'u');
-const draftHasData=d=>!!d&&((d.lineas||[]).some(l=>String(l.desc||'').trim())||String((d.cliente||{}).nombre||'').trim()!=='');
+const draftHasData=d=>!!d&&((d.lineas||[]).some(l=>String(l.desc||'').trim()||(+l.precio||0)>0)||['nombre','rtn','direccion','telefono','correo'].some(k=>String((d.cliente||{})[k]||'').trim()!=='')||String(d.observaciones||'').trim()!==''||!!d.clienteId);
 function saveLocal(){
   clearTimeout(saveT);
-  saveT=setTimeout(()=>{try{if(draft&&CUR==='nuevo'&&draftHasData(draft))localStorage.setItem(DKEY(),JSON.stringify({t:Date.now(),d:draft}))}catch(_){}},300);
+  saveT=setTimeout(flushLocal,300);
+}
+function flushLocal(){
+  if(!draft||CUR!=='nuevo'||!draftHasData(draft))return;
+  const el=document.getElementById('autosave');
+  try{
+    localStorage.setItem(DKEY(),JSON.stringify({t:Date.now(),d:draft}));
+    if(el){el.style.color='var(--ok,#14774a)';el.textContent='✓ Borrador guardado automáticamente a las '+new Date().toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})}
+  }catch(_){if(el){el.style.color='var(--bad,#b3261e)';el.textContent='⚠ Este navegador no permite guardar el borrador automático. Guarda el documento manualmente.'}}
 }
 function clearLocal(){clearTimeout(saveT);RESTORED=0;try{localStorage.removeItem(DKEY())}catch(_){}}
 function loadLocal(){try{const j=JSON.parse(localStorage.getItem(DKEY())||'null');if(j&&j.d&&Array.isArray(j.d.lineas)&&draftHasData(j.d)){if(j.d.id&&!find('documentos',j.d.id))delete j.d.id;return j}}catch(_){}return null}
-window.addEventListener('beforeunload',e=>{if(CUR==='nuevo'&&draftHasData(draft)){saveLocal();e.preventDefault();e.returnValue=''}});
+window.addEventListener('pagehide',flushLocal);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushLocal()});
+window.addEventListener('beforeunload',e=>{if(CUR==='nuevo'&&draftHasData(draft)){flushLocal();e.preventDefault();e.returnValue=''}});
 const UI={q:{},h:{tipo:'',estado:'',desde:'',hasta:''}};
 const find=(c,id)=>S[c].find(x=>x.id===id);
 const monOf=c=>MON.find(m=>m.code===c)||{code:c,nombre:c,simbolo:c,tasa:1};
@@ -946,7 +955,7 @@ VIEWS.nuevo=()=>{
   const cliOpts=`<option value="">— Registrar manualmente —</option>`+S.clientes.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(c=>`<option value="${c.id}"${c.id===d.clienteId?' selected':''}>${esc(c.nombre)}</option>`).join('');
   const prodOpts=sel=>`<option value="">Artículo manual</option>`+S.productos.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
   const caiOk=t==='factura'?pickCai(d.fecha):null;
-  return head(editing?'Editar documento':'Nuevo documento',null,'')+
+  return head(editing?'Editar documento':'Nuevo documento','<span id="autosave" style="color:var(--muted)">Se guarda solo mientras escribes.</span>','')+
   (RESTORED?`<div class="note" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px">Se recuperó un borrador que no habías guardado (${new Date(RESTORED).toLocaleString('es-HN',{dateStyle:'short',timeStyle:'short'})}). Revísalo y guárdalo.</span><button class="btn sm" data-act="descartar-borrador">Descartar y empezar de nuevo</button></div>`:'')+
   `<div class="edit"><div class="stack">
    <section class="card"><div class="card-h"><div><h2>${editing?'Editar '+TIPO[t].toLowerCase():'Crear nuevo documento'}</h2><p>Completa los datos comerciales y agrega los artículos.</p></div>${editing&&d.numero?`<span class="badge info mono">${esc(d.numero)}</span>`:`<span class="badge info">Nuevo</span>`}</div>
